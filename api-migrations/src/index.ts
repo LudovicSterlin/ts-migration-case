@@ -4,10 +4,10 @@ import path from 'node:path';
 import { retryAsync } from 'ts-retry';
 import {
   buildConnectionUrlFromEnvVariables,
-  getCustomerName,
   getConnectionHeaders,
+  getCustomerName,
 } from './utils/config';
-import { MyMigrations, MigrationFile, MyMigrationsUp } from './utils/types';
+import { MigrationFile, MyMigrations, MyMigrationsUp } from './utils/types';
 
 const HF_MIGRATION_TABLE_NAME = 'my_migrations';
 const MIGRATIONS_FOLDER_NAME = 'migrations';
@@ -42,38 +42,6 @@ export default defineHook(({ action }, hookExtensionContext) => {
         file.endsWith('.js')
       );
       
-      let customerMigrationsFolderPath: string;
-      let customerMigrationFiles: string[];
-      let migrations: MigrationFile[];
-
-      try {
-        customerMigrationsFolderPath = path.join(
-          migrationsFolderPath,
-          getCustomerName()
-        );
-
-        customerMigrationFiles = existsSync(customerMigrationsFolderPath)
-          ? readdirSync(customerMigrationsFolderPath).filter((file) =>
-              file.endsWith('.js')
-            )
-          : [];
-
-        migrations = [
-          ...migrationFiles.map((filename) => parseFileName(filename)),
-          ...customerMigrationFiles.map((filename) =>
-            parseFileName(filename, true)
-          ),
-        ].sort((a, b) => (a.version > b.version ? 1 : -1));
-      } catch (error) {
-        logger.info(
-          `Customer name is not set. Only general migrations will run.`
-        );
-        logger.warn(error);
-        migrations = [
-          ...migrationFiles.map((filename) => parseFileName(filename)),
-        ].sort((a, b) => (a.version > b.version ? 1 : -1));
-      }
-
       function parseFileName(fileName: string, custom = false) {
         const version = fileName.split('-')[0] || '-1';
         return {
@@ -87,6 +55,39 @@ export default defineHook(({ action }, hookExtensionContext) => {
             (migration) => migration.version === version
           ),
         };
+      }
+
+      // general migration list
+      let migrations: MigrationFile[] = migrationFiles.map((filename) => parseFileName(filename));
+
+      let customerName;
+      try {
+        customerName = getCustomerName();
+      } catch (error) {
+        logger.info(
+          `Customer name is not set. Only general migrations will run.`
+        );
+        logger.warn(error);
+      }
+
+      // add customer migration list
+      if (customerName) {
+        const customerMigrationsFolderPath: string = path.join(
+          migrationsFolderPath,
+          customerName
+        );
+
+        const customerMigrationFiles: string[] = existsSync(customerMigrationsFolderPath)
+          ? readdirSync(customerMigrationsFolderPath).filter((file) =>
+              file.endsWith('.js')
+            )
+          : [];
+
+        const customerMigrations = customerMigrationFiles
+          .map((filename) => parseFileName(filename, true))
+          .sort((a, b) => (a.version > b.version ? 1 : -1));
+          
+        migrations = migrations.concat(customerMigrations);
       }
 
       logger.info(`Found ${migrations.length} My migrations file`);
